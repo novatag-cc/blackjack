@@ -10,7 +10,7 @@
 # 2) old release/* branch is deleted
 # 3) next release/* branch is created from prod
 # 4) PR release/* -> prod is opened early for upcoming changes
-name: Auto-create next release branch and PR after a release merge into prod
+name: auto-create-release-branch-and-pr
 
 on:
   pull_request:
