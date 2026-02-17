@@ -1,0 +1,98 @@
+# .github/workflows/auto-create-release-branch-and-pr.yml
+name: Auto-create next release branch and PR after a release merge into prod
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: create-release-branch-and-pr-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create_release_branch_and_pr:
+    # Run only if:
+    # - PR was merged (not just closed)
+    # - base branch is prod
+    # - head branch name starts with release/
+    if: >
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'prod' &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout prod
+        uses: actions/checkout@v4
+        with:
+          ref: prod
+          fetch-depth: 0
+
+      - name: Compute next release branch name
+        id: vars
+        run: |
+          # English comments only
+          DATE="$(date -u +%Y-%m-%d)"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "branch=release/$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Delete merged release branch from origin
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          # English comments only
+          OLD_BRANCH="${{ github.event.pull_request.head.ref }}"
+
+          git fetch origin
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$OLD_BRANCH" > /dev/null 2>&1; then
+            git push origin --delete "$OLD_BRANCH"
+            echo "Deleted merged branch: $OLD_BRANCH"
+          else
+            echo "Merged branch not found on origin: $OLD_BRANCH. Skipping deletion."
+          fi
+
+      - name: Create and push release branch (if no release branch exists)
+        id: create_branch
+        run: |
+          # English comments only
+          BRANCH="${{ steps.vars.outputs.branch }}"
+
+          git fetch origin prod
+
+          EXISTING_RELEASE_BRANCHES="$(git ls-remote --heads origin 'refs/heads/release/*')"
+
+          if [ -n "$EXISTING_RELEASE_BRANCHES" ]; then
+            echo "A release branch already exists on remote. Skipping creation of a new release branch."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout -b "$BRANCH" origin/prod
+          git push origin "$BRANCH"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create PR release -> prod (if not exists)
+        if: steps.create_branch.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # English comments only
+          BRANCH="${{ steps.vars.outputs.branch }}"
+          BASE="prod"
+          DATE="${{ steps.vars.outputs.date }}"
+
+          if gh pr list --state open --head "$BRANCH" --base "$BASE" --json number --jq 'length' | grep -qE '^[1-9]'; then
+            echo "PR already exists for $BRANCH -> $BASE. Skipping."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "Release $DATE (release -> prod)" \
+            --body "Auto-created after merging a release branch into prod. Flow: release -> prod. This PR is intentionally opened early and may be empty until changes are added."
