@@ -1,0 +1,117 @@
+# .github/workflows/auto-create-release-branch-and-pr.yml
+# Workflow purpose:
+# - After a release/* PR is merged into prod, automate the next cycle setup.
+# - Remove the merged release branch from origin (same-repo PRs only).
+# - Create a new release/YYYY-MM-DD branch from prod (only if none exists).
+# - Open a PR release/* -> prod for the new branch (only if it does not exist).
+#
+# Expected flow:
+# 1) release/* -> prod is merged
+# 2) old release/* branch is deleted
+# 3) next release/* branch is created from prod
+# 4) PR release/* -> prod is opened early for upcoming changes
+name: auto-create-release-branch-and-pr
+
+on:
+  pull_request:
+    # Trigger when PR lifecycle ends; job-level "if" decides whether to act.
+    types: [closed]
+
+concurrency:
+  # Avoid two executions racing for the same branch/PR operations.
+  group: create-release-branch-and-pr-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create_release_branch_and_pr:
+    # Run only if:
+    # - PR was merged (not just closed)
+    # - base branch is prod
+    # - head branch name starts with release/
+    if: >
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'prod' &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout prod
+        # Fetch full history to ensure remote branch operations are reliable.
+        uses: actions/checkout@v4
+        with:
+          ref: prod
+          fetch-depth: 0
+
+      - name: Compute next release branch name
+        id: vars
+        run: |
+          # English comments only
+          # Branch format: release/YYYY-MM-DD (UTC date).
+          DATE="$(date -u +%Y-%m-%d)"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "branch=release/$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Delete merged release branch from origin
+        # Safety: only delete when source branch belongs to this repository.
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          # English comments only
+          OLD_BRANCH="${{ github.event.pull_request.head.ref }}"
+
+          git fetch origin
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$OLD_BRANCH" > /dev/null 2>&1; then
+            git push origin --delete "$OLD_BRANCH"
+            echo "Deleted merged branch: $OLD_BRANCH"
+          else
+            echo "Merged branch not found on origin: $OLD_BRANCH. Skipping deletion."
+          fi
+
+      - name: Create and push release branch (if no release branch exists)
+        id: create_branch
+        run: |
+          # English comments only
+          BRANCH="${{ steps.vars.outputs.branch }}"
+
+          git fetch origin prod
+
+          EXISTING_RELEASE_BRANCHES="$(git ls-remote --heads origin 'refs/heads/release/*')"
+
+          # Guardrail: keep a single active release/* branch on remote.
+          if [ -n "$EXISTING_RELEASE_BRANCHES" ]; then
+            echo "A release branch already exists on remote. Skipping creation of a new release branch."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout -b "$BRANCH" origin/prod
+          git push origin "$BRANCH"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create PR release -> prod (if not exists)
+        if: steps.create_branch.outputs.created == 'true'
+        env:
+          # Built-in token with pull-requests:write permission.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # English comments only
+          BRANCH="${{ steps.vars.outputs.branch }}"
+          BASE="prod"
+          DATE="${{ steps.vars.outputs.date }}"
+
+          # Idempotency: avoid duplicate open PRs for the same head/base.
+          if gh pr list --state open --head "$BRANCH" --base "$BASE" --json number --jq 'length' | grep -qE '^[1-9]'; then
+            echo "PR already exists for $BRANCH -> $BASE. Skipping."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$BRANCH" \
+            --title "Release $DATE (release -> prod)" \
+            --body "Auto-created after merging a release branch into prod. Flow: release -> prod. This PR is intentionally opened early and may be empty until changes are added."
