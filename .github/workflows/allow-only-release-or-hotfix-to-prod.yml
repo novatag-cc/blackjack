@@ -70,6 +70,14 @@ jobs:
               return;
             }
 
+            // main must never target prod in this repository flow.
+            if (headRef === "main") {
+              core.setFailed(
+                "ERROR: Source branch 'main' is never allowed to target 'prod'."
+              );
+              return;
+            }
+
             const bypassLabel = process.env.BYPASS_LABEL || "bypass-prod-gate";
             const hasBypassLabel = labels.includes(bypassLabel);
 

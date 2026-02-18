@@ -1,0 +1,49 @@
+name: block-main-merges-into-prod
+
+on:
+  pull_request:
+    branches: [prod]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block merge commits that import main history
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          git fetch origin main prod --no-tags --prune
+
+          FOUND=0
+
+          for MERGE_COMMIT in $(git rev-list --merges "${BASE_SHA}..${HEAD_SHA}"); do
+            PARENTS="$(git show -s --format=%P "$MERGE_COMMIT")"
+
+            for PARENT in $PARENTS; do
+              if git merge-base --is-ancestor "$PARENT" "origin/main" && ! git merge-base --is-ancestor "$PARENT" "origin/prod"; then
+                echo "Blocked: merge commit $MERGE_COMMIT introduces history from main (parent: $PARENT)."
+                FOUND=1
+              fi
+            done
+          done
+
+          if [ "$FOUND" -eq 1 ]; then
+            exit 1
+          fi
+
+          echo "OK: no merge commit importing main history into this PR to prod."

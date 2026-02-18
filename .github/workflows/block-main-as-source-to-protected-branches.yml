@@ -1,0 +1,34 @@
+name: block-main-as-source-to-protected-branches
+
+on:
+  pull_request:
+    branches:
+      - prod
+      - "release/**"
+      - "feature/**"
+      - "hotfix/**"
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block PRs from main to protected branches
+        run: |
+          BASE="${{ github.event.pull_request.base.ref }}"
+          HEAD="${{ github.event.pull_request.head.ref }}"
+
+          if [ "$HEAD" = "main" ]; then
+            echo "Blocked: source branch 'main' cannot target '$BASE'."
+            exit 1
+          fi
+
+          echo "OK: source branch '$HEAD' is allowed to target '$BASE' for this rule."
