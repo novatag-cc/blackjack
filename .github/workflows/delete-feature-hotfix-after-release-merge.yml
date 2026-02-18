@@ -1,0 +1,34 @@
+name: delete-feature-hotfix-after-release-merge
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.base.ref, 'release/') &&
+      (startsWith(github.event.pull_request.head.ref, 'feature/') || startsWith(github.event.pull_request.head.ref, 'hotfix/'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete merged feature/hotfix branch from origin
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          git fetch origin
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" > /dev/null 2>&1; then
+            git push origin --delete "$BRANCH"
+            echo "Deleted merged branch: $BRANCH"
+          else
+            echo "Branch not found on origin: $BRANCH. Nothing to delete."
+          fi

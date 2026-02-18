@@ -1,0 +1,39 @@
+name: allow-only-feature-hotfix-or-prod-to-main
+
+on:
+  pull_request:
+    branches: [main]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch for main
+        run: |
+          BASE="${{ github.event.pull_request.base.ref }}"
+          HEAD="${{ github.event.pull_request.head.ref }}"
+
+          if [ "$BASE" != "main" ]; then
+            echo "Not targeting main. Skipping."
+            exit 0
+          fi
+
+          case "$HEAD" in
+            feature/*|hotfix/*|prod)
+              echo "OK: $HEAD -> $BASE"
+              exit 0
+              ;;
+            *)
+              echo "Blocked: PR to main must come from feature/*, hotfix/*, or prod (got: $HEAD)"
+              exit 1
+              ;;
+          esac

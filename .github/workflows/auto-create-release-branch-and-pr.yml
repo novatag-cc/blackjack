@@ -10,6 +10,7 @@
 # 2) old release/* branch is deleted
 # 3) next release/* branch is created from prod
 # 4) PR release/* -> prod is opened early for upcoming changes
+# 5) PR prod -> main is created/reused and configured with auto-merge
 name: auto-create-release-branch-and-pr
 
 on:
@@ -115,3 +116,49 @@ jobs:
             --head "$BRANCH" \
             --title "Release $DATE (release -> prod)" \
             --body "Auto-created after merging a release branch into prod. Flow: release -> prod. This PR is intentionally opened early and may be empty until changes are added."
+
+      - name: Create or reuse PR prod -> main
+        id: prod_to_main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # English comments only
+          HEAD="prod"
+          BASE="main"
+
+          EXISTING_PR_NUMBER="$(gh pr list --state open --head "$HEAD" --base "$BASE" --json number --jq '.[0].number')"
+
+          if [ -n "$EXISTING_PR_NUMBER" ] && [ "$EXISTING_PR_NUMBER" != "null" ]; then
+            echo "Open PR already exists for $HEAD -> $BASE: #$EXISTING_PR_NUMBER"
+            echo "number=$EXISTING_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$HEAD" \
+            --title "Sync prod into main" \
+            --body "Auto-created after merging release into prod to keep main updated with production changes."
+
+          CREATED_PR_NUMBER="$(gh pr list --state open --head "$HEAD" --base "$BASE" --json number --jq '.[0].number')"
+
+          if [ -z "$CREATED_PR_NUMBER" ] || [ "$CREATED_PR_NUMBER" = "null" ]; then
+            echo "Failed to identify created PR for $HEAD -> $BASE."
+            exit 1
+          fi
+
+          echo "number=$CREATED_PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge on prod -> main PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # English comments only
+          PR_NUMBER="${{ steps.prod_to_main.outputs.number }}"
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR number available for prod -> main."
+            exit 1
+          fi
+
+          gh pr merge "$PR_NUMBER" --auto --merge
