@@ -1,8 +1,21 @@
 # .github/workflows/allow-only-release-or-hotfix-to-prod.yml
+# Workflow purpose:
+# - Protect prod by allowing PRs only from release/* or hotfix/* branches.
+# - Exceptional bypass is possible via label, but only for members of a specific team.
+#
+# Default rule:
+# - Allowed:  release/* -> prod
+# - Allowed:  hotfix/* -> prod
+# - Blocked:  any other source branch -> prod
+#
+# Bypass rule:
+# - Add label defined in BYPASS_LABEL (default: bypass-prod-gate)
+# - Actor must belong to TEAM_SLUG (default: architects)
 name: allow-only-release-or-hotfix-to-prod
 
 on:
   pull_request:
+    # Run only for PRs that target prod.
     branches: [prod]
     types:
       - opened
@@ -24,7 +37,9 @@ jobs:
       - name: Validate source branch for prod (with Architects bypass)
         uses: actions/github-script@v7
         env:
+          # Label that enables the bypass path.
           BYPASS_LABEL: bypass-prod-gate
+          # Team required to authorize bypass usage.
           TEAM_SLUG: architects
         with:
           script: |
@@ -46,6 +61,7 @@ jobs:
               return;
             }
 
+            // Main policy: only release/* or hotfix/* can target prod.
             const isAllowedSource =
               headRef.startsWith("release/") || headRef.startsWith("hotfix/");
 

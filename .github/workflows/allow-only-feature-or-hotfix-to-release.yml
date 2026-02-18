@@ -1,0 +1,51 @@
+# Workflow purpose:
+# - Protect release branches by only allowing PRs from feature/* or hotfix/*.
+# - If the PR target is not release/*, this workflow exits successfully (no-op).
+#
+# Allowed examples:
+# - feature/new-login -> release/1.4.0
+# - hotfix/fix-null-pointer -> release/1.4.0
+#
+# Blocked examples:
+# - bugfix/some-change -> release/1.4.0
+# - chore/deps -> release/1.4.0
+name: allow-only-feature-or-hotfix-to-release
+
+on:
+  pull_request:
+    # Re-validate on new commits and metadata updates.
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch to release/*
+        run: |
+          # English comments only
+          BASE="${{ github.event.pull_request.base.ref }}"
+          HEAD="${{ github.event.pull_request.head.ref }}"
+
+          # Gate only applies when target branch matches release/*.
+          case "$BASE" in
+            release/*) ;;
+            *)
+              echo "Not targeting release/*. OK."
+              exit 0
+              ;;
+          esac
+
+          # Enforce source branch naming when target is release/*.
+          case "$HEAD" in
+            feature/*|hotfix/*)
+              echo "OK: $HEAD -> $BASE"
+              exit 0
+              ;;
+            *)
+              echo "Blocked: PR to release/* must come from feature/* or hotfix/* (got: $HEAD)"
+              exit 1
+              ;;
+          esac
