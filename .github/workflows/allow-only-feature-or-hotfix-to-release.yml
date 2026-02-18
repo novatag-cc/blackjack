@@ -1,6 +1,6 @@
 # Workflow purpose:
 # - Protect release branches by only allowing PRs from feature/* or hotfix/*.
-# - If the PR target is not release/*, this workflow exits successfully (no-op).
+# - Runs only when PR target is release/*.
 #
 # Allowed examples:
 # - feature/new-login -> release/1.4.0
@@ -13,6 +13,9 @@ name: allow-only-feature-or-hotfix-to-release
 
 on:
   pull_request:
+    # Trigger only for PRs targeting release branches.
+    branches:
+      - "release/**"
     # Re-validate on new commits and metadata updates.
     types: [opened, reopened, synchronize, edited]
 
