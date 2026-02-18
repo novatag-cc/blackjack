@@ -11,7 +11,7 @@
 # Bypass rule:
 # - Add label defined in BYPASS_LABEL (default: bypass-prod-gate)
 # - Actor must belong to TEAM_SLUG (default: architects)
-name: Allow only release/* into prod
+name: allow-only-release-or-hotfix-to-prod
 
 on:
   pull_request:

@@ -9,7 +9,7 @@
 # Blocked examples:
 # - bugfix/some-change -> release/1.4.0
 # - chore/deps -> release/1.4.0
-name: Allow only feature/* or hotfix/* to release/*
+name: allow-only-feature-or-hotfix-to-release
 
 on:
   pull_request:
